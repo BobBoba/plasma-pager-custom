@@ -1,0 +1,12 @@
+# makepkg build artifacts
+/src/
+/pkg/
+*.pkg.tar.zst
+*.log
+
+# downloaded upstream sources (fetched by makepkg from download.kde.org)
+plasma-desktop-*.tar.xz
+plasma-desktop-*.tar.xz.sig
+
+# upstream Arch packaging reference clone (kept locally for diffing, not part of this repo)
+/arch-pkg/

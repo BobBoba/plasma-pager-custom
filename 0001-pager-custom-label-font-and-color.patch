@@ -1,0 +1,413 @@
+diff --git a/applets/pager/main.xml b/applets/pager/main.xml
+index d47b935..d213ab1 100644
+--- a/applets/pager/main.xml
++++ b/applets/pager/main.xml
+@@ -48,6 +48,44 @@
+         </choices>
+         <default>0</default>
+     </entry>
++    <entry name="customFontEnabled" type="Bool">
++      <label>Whether to override the desktop label font with a custom one instead of following the theme.</label>
++      <default>false</default>
++    </entry>
++    <entry name="fontFamily" type="String">
++      <label>Custom font family for the desktop labels. An empty value means the theme's default font family is used.</label>
++      <default></default>
++    </entry>
++    <entry name="fontSize" type="Int">
++      <label>Custom font size, in pixels, for the desktop labels. A value of 0 means automatic sizing (fit to the desktop rectangle, the previous behavior).</label>
++      <default>0</default>
++    </entry>
++    <entry name="customColorEnabled" type="Bool">
++      <label>Whether to override the desktop label color with a custom one instead of following the theme text color.</label>
++      <default>false</default>
++    </entry>
++    <entry name="textColor" type="Color">
++      <label>Custom color for the desktop labels. Only used when a custom color is enabled.</label>
++      <default>0,0,0</default>
++    </entry>
++    <entry name="labelEffect" type="Enum">
++        <label>Legibility effect applied to the desktop labels to lift them off a busy background.</label>
++        <choices>
++            <choice name="None"/>
++            <choice name="Outline"/>
++            <choice name="Shadow"/>
++            <choice name="Scrim"/>
++        </choices>
++        <default>0</default>
++    </entry>
++    <entry name="effectColorAuto" type="Bool">
++      <label>Whether the label effect color is chosen automatically for contrast against the text color, instead of using a fixed color.</label>
++      <default>true</default>
++    </entry>
++    <entry name="effectColor" type="Color">
++      <label>Fixed color for the label effect (outline/shadow/scrim). Only used when automatic effect color is disabled.</label>
++      <default>0,0,0</default>
++    </entry>
+   </group>
+ 
+ </kcfg>
+diff --git a/applets/pager/qml/configGeneral.qml b/applets/pager/qml/configGeneral.qml
+index 4f0e03d..64b097f 100644
+--- a/applets/pager/qml/configGeneral.qml
++++ b/applets/pager/qml/configGeneral.qml
+@@ -7,10 +7,12 @@
+ 
+ import QtQuick
+ import QtQuick.Controls as QQC2
++import QtQuick.Layouts
+ 
+ import org.kde.kirigami as Kirigami
+ import org.kde.plasma.plasmoid
+ import org.kde.kcmutils as KCM
++import org.kde.kquickcontrols as KQuickControls
+ 
+ KCM.SimpleKCM {
+     id: root
+@@ -24,6 +26,19 @@ KCM.SimpleKCM {
+     property alias cfg_showOnlyCurrentScreen: showOnlyCurrentScreen.checked
+     property alias cfg_wrapPage: wrapPage.checked
+ 
++    property alias cfg_customFontEnabled: customFontCheck.checked
++    // * fontFamily is a plain string property (not an alias) because the combo box
++    // * restores its selection from it via currentIndex and writes back onActivated.
++    property string cfg_fontFamily
++    property alias cfg_fontSize: fontSizeSpin.value
++    property alias cfg_customColorEnabled: customColorCheck.checked
++    property alias cfg_textColor: textColorButton.color
++
++    // labelEffect is an enum (0 None / 1 Outline / 2 Shadow / 3 Scrim) driven by the combo box.
++    property int cfg_labelEffect
++    property alias cfg_effectColorAuto: effectColorAutoCheck.checked
++    property alias cfg_effectColor: effectColorButton.color
++
+     Kirigami.FormLayout {
+         QQC2.ButtonGroup {
+             id: displayedTextGroup
+@@ -132,5 +147,198 @@ KCM.SimpleKCM {
+             checked: root.cfg_currentDesktopSelected === 1
+             onToggled: if (checked) root.cfg_currentDesktopSelected = 1;
+         }
++
++
++        Item {
++            Kirigami.FormData.isSection: true
++        }
++
++
++        QQC2.CheckBox {
++            id: customFontCheck
++
++            Kirigami.FormData.label: i18nc("@title:group prefix for the label-appearance options", "Label appearance:") // qmllint disable unqualified
++
++            text: i18nc("@option:check", "Use a custom font") // qmllint disable unqualified
++        }
++
++        // Font picker as a Button + popup rather than a styled ComboBox: the
++        // org.kde.desktop ComboBox draws its current text via a native StyleItem
++        // (not contentItem) and couples its background to popup.exit, so overriding
++        // both contentItem and popup there breaks rendering. A Button has a fully
++        // custom contentItem and no such coupling.
++        QQC2.Button {
++            id: fontFamilyButton
++
++            Kirigami.FormData.label: i18nc("@label:listbox", "Font:") // qmllint disable unqualified
++
++            enabled: customFontCheck.checked
++            // Stable width so the button doesn't resize as the chosen family changes.
++            Layout.preferredWidth: Kirigami.Units.gridUnit * 14
++
++            // Full family list; the popup narrows it by the search field.
++            // Qt.fontFamilies() returns a plain JS array, so filter/indexOf work directly.
++            readonly property var allFamilies: Qt.fontFamilies()
++            property string searchText: ""
++            readonly property var filteredFamilies: searchText.length === 0
++                ? allFamilies
++                : allFamilies.filter(f => f.toLowerCase().indexOf(searchText.toLowerCase()) !== -1)
++
++            onClicked: fontPopup.open()
++
++            // Button face: the current family rendered in its own typeface (preview).
++            contentItem: RowLayout {
++                spacing: Kirigami.Units.smallSpacing
++
++                QQC2.Label {
++                    Layout.fillWidth: true
++                    horizontalAlignment: Text.AlignLeft
++                    verticalAlignment: Text.AlignVCenter
++                    elide: Text.ElideRight
++                    text: root.cfg_fontFamily.length > 0
++                        ? root.cfg_fontFamily
++                        : i18nc("@item:inlistbox the theme's default font is used", "Default") // qmllint disable unqualified
++                    font.family: root.cfg_fontFamily.length > 0
++                        ? root.cfg_fontFamily
++                        : Kirigami.Theme.defaultFont.family
++                }
++
++                Kirigami.Icon {
++                    source: "arrow-down"
++                    implicitWidth: Kirigami.Units.iconSizes.small
++                    implicitHeight: Kirigami.Units.iconSizes.small
++                }
++            }
++
++            // Searchable, preview-rendered font list.
++            QQC2.Popup {
++                id: fontPopup
++
++                y: fontFamilyButton.height
++                // At least as wide as the button, but roomy enough for long names.
++                width: Math.max(fontFamilyButton.width, Kirigami.Units.gridUnit * 18)
++                height: Kirigami.Units.gridUnit * 18
++                padding: Kirigami.Units.smallSpacing
++
++                // Reset the filter and focus the search field every time it opens.
++                onOpened: {
++                    searchField.text = "";
++                    fontFamilyButton.searchText = "";
++                    searchField.forceActiveFocus();
++                }
++
++                ColumnLayout {
++                    anchors.fill: parent
++                    spacing: Kirigami.Units.smallSpacing
++
++                    Kirigami.SearchField {
++                        id: searchField
++                        Layout.fillWidth: true
++                        placeholderText: i18nc("@info:placeholder", "Search fonts…") // qmllint disable unqualified
++                        onTextChanged: fontFamilyButton.searchText = text
++                    }
++
++                    QQC2.ScrollView {
++                        Layout.fillWidth: true
++                        Layout.fillHeight: true
++                        clip: true
++
++                        ListView {
++                            id: familyListView
++                            model: fontFamilyButton.filteredFamilies
++                            currentIndex: model.indexOf(root.cfg_fontFamily)
++
++                            delegate: QQC2.ItemDelegate {
++                                id: familyDelegate
++
++                                required property int index
++                                required property string modelData
++
++                                width: ListView.view.width
++                                text: modelData
++                                // Preview: each family name drawn in that family.
++                                font.family: modelData
++                                highlighted: ListView.isCurrentItem
++
++                                onClicked: {
++                                    root.cfg_fontFamily = familyDelegate.modelData;
++                                    fontPopup.close();
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++
++        QQC2.SpinBox {
++            id: fontSizeSpin
++
++            Kirigami.FormData.label: i18nc("@label:spinbox", "Font size:") // qmllint disable unqualified
++
++            enabled: customFontCheck.checked
++            from: 0 // 0 means automatic (fit to the desktop rectangle)
++            to: 256
++            textFromValue: (value, locale) => value === 0
++                ? i18nc("@item automatic font size", "Automatic")
++                : i18nc("@item font size in pixels", "%1 px", value)
++            valueFromText: (text, locale) => {
++                const n = parseInt(text, 10);
++                return isNaN(n) ? 0 : n;
++            }
++        }
++
++        QQC2.CheckBox {
++            id: customColorCheck
++            text: i18nc("@option:check", "Use a custom text color") // qmllint disable unqualified
++        }
++
++        KQuickControls.ColorButton {
++            id: textColorButton
++
++            Kirigami.FormData.label: i18nc("@label:chooser", "Text color:") // qmllint disable unqualified
++
++            enabled: customColorCheck.checked
++            showAlphaChannel: true
++            dialogTitle: i18nc("@title:window", "Select Desktop Label Color") // qmllint disable unqualified
++        }
++
++
++        Item {
++            Kirigami.FormData.isSection: true
++        }
++
++
++        QQC2.ComboBox {
++            id: labelEffectCombo
++
++            Kirigami.FormData.label: i18nc("@label:listbox legibility effect for the labels", "Legibility effect:") // qmllint disable unqualified
++
++            // Index maps 1:1 to the labelEffect enum (0 None / 1 Outline / 2 Shadow / 3 Scrim).
++            model: [
++                i18nc("@item:inlistbox label legibility effect", "None"), // qmllint disable unqualified
++                i18nc("@item:inlistbox label legibility effect", "Outline"), // qmllint disable unqualified
++                i18nc("@item:inlistbox label legibility effect", "Shadow"), // qmllint disable unqualified
++                i18nc("@item:inlistbox label legibility effect", "Background scrim"), // qmllint disable unqualified
++            ]
++            currentIndex: root.cfg_labelEffect
++            onActivated: root.cfg_labelEffect = currentIndex
++        }
++
++        QQC2.CheckBox {
++            id: effectColorAutoCheck
++            text: i18nc("@option:check", "Automatic effect color (contrast)") // qmllint disable unqualified
++            enabled: root.cfg_labelEffect !== 0
++        }
++
++        KQuickControls.ColorButton {
++            id: effectColorButton
++
++            Kirigami.FormData.label: i18nc("@label:chooser", "Effect color:") // qmllint disable unqualified
++
++            enabled: root.cfg_labelEffect !== 0 && !effectColorAutoCheck.checked
++            showAlphaChannel: true
++            dialogTitle: i18nc("@title:window", "Select Label Effect Color") // qmllint disable unqualified
++        }
+     }
+ }
+diff --git a/applets/pager/qml/main.qml b/applets/pager/qml/main.qml
+index 514099e..c10a7bd 100644
+--- a/applets/pager/qml/main.qml
++++ b/applets/pager/qml/main.qml
+@@ -9,6 +9,7 @@ pragma ComponentBehavior: Bound
+ 
+ import QtQuick
+ import QtQuick.Layouts
++import QtQuick.Effects
+ import org.kde.plasma.plasmoid
+ import org.kde.plasma.core as PlasmaCore
+ import org.kde.ksvg as KSvg
+@@ -168,11 +169,19 @@ PlasmoidItem {
+     Component {
+         id: desktopLabelComponent
+ 
+-        PlasmaComponents3.Label {
++        // * Wrapper Item (instead of the bare Label) so a scrim plate can be painted
++        // * *behind* the text. The wrapper carries the same anchoring/z the Label had.
++        Item {
++            id: labelRoot
++
+             required property int index
+             required property string display
+             required property KSvg.FrameSvgItem desktopFrame
+ 
++            // * Label effect mode, mirrors the labelEffect enum in main.xml:
++            // * 0 = None, 1 = Outline, 2 = Shadow, 3 = Scrim.
++            readonly property int effectMode: Plasmoid.configuration.labelEffect
++
+             anchors {
+                 fill: parent
+                 topMargin: desktopFrame.margins.top
+@@ -181,18 +190,86 @@ PlasmoidItem {
+                 bottomMargin: desktopFrame.margins.bottom
+             }
+ 
+-            text: Plasmoid.configuration.displayedText ? display : index + 1
+-            textFormat: Text.PlainText
++            z: 9999 // The label goes above everything
++
++            // * Scrim: translucent plate behind the text (lower z), sized to the text
++            // * plus a little padding and clamped to the cell so it never overflows.
++            Rectangle {
++                visible: labelRoot.effectMode === 3
++                anchors.centerIn: label
++                width: Math.min(labelRoot.width, label.contentWidth + Kirigami.Units.smallSpacing * 2)
++                height: Math.min(labelRoot.height, label.contentHeight + Kirigami.Units.smallSpacing)
++                radius: Kirigami.Units.smallSpacing
++                color: root.colorWithAlpha(label.resolvedEffectColor, 0.6)
++                z: 0
++            }
++
++            PlasmaComponents3.Label {
++                id: label
+ 
+-            wrapMode: Text.NoWrap
+-            elide: Text.ElideRight
++                anchors.fill: parent
++                z: 1
+ 
+-            horizontalAlignment: Text.AlignHCenter
+-            verticalAlignment: Text.AlignVCenter
++                text: Plasmoid.configuration.displayedText ? labelRoot.display : labelRoot.index + 1
++                textFormat: Text.PlainText
+ 
+-            font.pixelSize: Math.min(height, Kirigami.Theme.defaultFont.pixelSize)
++                wrapMode: Text.NoWrap
++                elide: Text.ElideRight
+ 
+-            z: 9999 // The label goes above everything
++                horizontalAlignment: Text.AlignHCenter
++                verticalAlignment: Text.AlignVCenter
++
++                // * Font family: theme default unless the user opted into a custom font
++                // * and actually picked a family (empty string falls back to the theme).
++                font.family: (Plasmoid.configuration.customFontEnabled && Plasmoid.configuration.fontFamily.length > 0)
++                    ? Plasmoid.configuration.fontFamily
++                    : Kirigami.Theme.defaultFont.family
++
++                // * Font size is always capped by the rectangle height so the label can
++                // * never overflow its cell. With a custom size (>0) we honor the user's
++                // * pixel size up to that cap; otherwise we keep the original auto behavior.
++                font.pixelSize: {
++                    const base = (Plasmoid.configuration.customFontEnabled && Plasmoid.configuration.fontSize > 0)
++                        ? Plasmoid.configuration.fontSize
++                        : Kirigami.Theme.defaultFont.pixelSize;
++                    return Math.min(height, base);
++                }
++
++                // * Text color: theme text color (the Label default) unless a custom
++                // * color is enabled. Keeping the else-branch identical preserves the
++                // * exact previous rendering when the option is off.
++                color: Plasmoid.configuration.customColorEnabled
++                    ? Plasmoid.configuration.textColor
++                    : Kirigami.Theme.textColor
++
++                // * Effect color for Outline/Scrim/Shadow: either auto (contrast against
++                // * the text color via Kirigami.ColorUtils — a black halo under light
++                // * text, white under dark) or a user-picked color.
++                readonly property color resolvedEffectColor: {
++                    if (!Plasmoid.configuration.effectColorAuto) {
++                        return Plasmoid.configuration.effectColor;
++                    }
++                    return Kirigami.ColorUtils.brightnessForColor(color) === Kirigami.ColorUtils.Light
++                        ? Qt.rgba(0, 0, 0, 1)
++                        : Qt.rgba(1, 1, 1, 1);
++                }
++
++                // * Outline mode uses Text's built-in styled rendering (no shader, free).
++                style: labelRoot.effectMode === 1 ? Text.Outline : Text.Normal
++                styleColor: resolvedEffectColor
++
++                // * Shadow mode renders the label to a layer and runs a GPU MultiEffect
++                // * drop shadow. Enabled only in that mode so the common path stays cheap.
++                layer.enabled: labelRoot.effectMode === 2
++                layer.effect: MultiEffect {
++                    shadowEnabled: true
++                    shadowColor: label.resolvedEffectColor
++                    shadowBlur: 0.6
++                    shadowHorizontalOffset: 1
++                    shadowVerticalOffset: 1
++                    autoPaddingEnabled: true
++                }
++            }
+         }
+     }
+ 
