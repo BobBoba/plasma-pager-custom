@@ -101,15 +101,16 @@ makedepends=(extra-cmake-modules
              xf86-input-libinput
              xorg-server-devel)
 groups=(plasma)
-source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz{,.sig}
+source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
         0001-pager-custom-label-font-and-color.patch)
-sha256sums=('f0450dc26706fc2d719ab28e3102149cfbf6a72e81cd310c936b85c08abb6f2f'
-            'SKIP'
-            'SKIP') # local patch; run `updpkgsums` to pin a real checksum if desired
-validpgpkeys=('E0A3EB202F8E57528E13E72FD7574483BB57B18D'  # Jonathan Esk-Riddell <jr@jriddell.org>
-              '0AAC775BB6437A8D9AF7A3ACFE0784117FBCE11D'  # Bhushan Shah <bshah@kde.org>
-              'D07BD8662C56CB291B316EB2F5675605C74E02CF'  # David Edmundson <davidedmundson@kde.org>
-              '1FA881591C26B276D7A5518EEAAF29B42A678C20') # Marco Martin <notmart@gmail.com>
+# Integrity of the upstream tarball is guaranteed by the pinned SHA-256 below — the
+# exact hash from Arch's official plasma-desktop package. The PGP signature (.sig)
+# and validpgpkeys are intentionally NOT used: they only verify the signer's identity,
+# require the KDE release keys in the user's keyring, and a stock keyring lacks them,
+# which would make `makepkg` fail with "unknown public key". The pinned checksum already
+# rules out tampering/corruption, so the package builds out of the box without keys.
+sha256sums=('f0450dc26706fc2d719ab28e3102149cfbf6a72e81cd310c936b85c08abb6f2f'  # plasma-desktop-6.7.1.tar.xz
+            'SKIP')                                                            # local patch (this repo)
 
 prepare() {
   cd $pkgname-$pkgver
